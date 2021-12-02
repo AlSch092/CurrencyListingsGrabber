@@ -12,16 +12,15 @@ namespace CurrencyListingGrabber
     class CurrencyListingResult
     {
         public string AccountName;
-        public string CharacterName; //data-ign
-        public string League; //data-league
-        public string ItemName; //data-name
+        public string CharacterName;
+        public string League;
+        public string ItemName;
         public int sellCurrency;
-        public float sellValue;
+        public Decimal sellValue;
         public int buyCurrency;
-        public int buyValue;
+        public Decimal buyValue;
         public int stock;
     }
-
 
     class Grabber
     {
@@ -44,7 +43,7 @@ namespace CurrencyListingGrabber
                 await file.WriteLineAsync(text);
         }
 
-        public static int GetItemMapping(string itemName)
+        public static int GetItemMapping(string itemName) //todo: finish this for rest of items in currency market
         {
             int mapping = 0;
 
@@ -151,9 +150,7 @@ namespace CurrencyListingGrabber
             // From byte array to string
             s = System.Text.Encoding.UTF8.GetString(ouat, 0, ouat.Length);
 
-            int readIndex, endIndex;
-            //each new listing is a :
-            //<div class="displayoffer 
+            int readIndex = 0, endIndex = 0;
 
             int index_displayOffer = s.IndexOf("displayoffer \"", 0);
             int index_accountName = s.IndexOf("data-username", 0);
@@ -169,59 +166,91 @@ namespace CurrencyListingGrabber
             while (index_displayOffer > 0)
             {
                 CurrencyListingResult result = new CurrencyListingResult();
- 
-                readIndex = index_displayOffer + "displayoffer \"".Length + 2; // = " for +2
+
+                index_displayOffer = s.IndexOf("displayoffer \"", readIndex);
                 endIndex = s.IndexOf("\"", readIndex); //get closing quotation for end of line...
 
-                readIndex = index_sellCurrency + "data-sellcurrency".Length + 2;
-                endIndex = s.IndexOf("\"", readIndex);
-                string ItemName = s.Substring(readIndex, endIndex - readIndex);
-                result.ItemName = ItemName; //will be a number
+                if(index_displayOffer > 0)
+                {
+                    index_accountName = s.IndexOf("data-username", index_displayOffer);
+                    readIndex = index_accountName + "data-username".Length + 2;
+                    endIndex = s.IndexOf("\"", readIndex);
+                    string username = s.Substring(readIndex, endIndex - readIndex);
+                    result.AccountName = username;
 
-                readIndex = index_sellValue + "data-sellvalue".Length + 2;
-                endIndex = s.IndexOf("\"", readIndex);
-                string sellValue = s.Substring(readIndex, endIndex - readIndex);
-                //result. = TabName;
+                    index_sellCurrency = s.IndexOf("data-sellcurrency", index_displayOffer);
+                    readIndex = index_sellCurrency + "data-sellcurrency".Length + 2;
+                    endIndex = s.IndexOf("\"", readIndex);
+                    string ItemName = s.Substring(readIndex, endIndex - readIndex);
+                    result.ItemName = ItemName; //will be a number
 
-                readIndex = index_buyCurrency + "data-buycurrency".Length + 2;
-                endIndex = s.IndexOf("\"", readIndex);
-                string buyCurrency = s.Substring(readIndex, endIndex - readIndex);
-                //result.CellX = Convert.ToInt32(X);
+                    index_sellValue = s.IndexOf("data-sellvalue", readIndex);
+                    readIndex = index_sellValue + "data-sellvalue".Length + 2;
+                    endIndex = s.IndexOf("\"", readIndex);
+                    string sellValue = s.Substring(readIndex, endIndex - readIndex);
 
-                readIndex = index_sellValue + "data-buyvalue".Length + 2;
-                endIndex = s.IndexOf("\"", readIndex);
-                string buyValue = s.Substring(readIndex, endIndex - readIndex);
+                    index_buyCurrency = s.IndexOf("data-buycurrency", index_sellValue);
+                    readIndex = index_buyCurrency + "data-buycurrency".Length + 2;
+                    endIndex = s.IndexOf("\"", readIndex);
+                    string buyCurrency = s.Substring(readIndex, endIndex - readIndex);
 
-                readIndex = index_ign + "data-ign".Length + 2;
-                endIndex = s.IndexOf("\"", readIndex);
-                string IGN = s.Substring(readIndex, endIndex - readIndex);
-                result.CharacterName = IGN;
 
-                readIndex = index_ign + "data-stock".Length + 2;
-                endIndex = s.IndexOf("\"", readIndex);
-                string stock = s.Substring(readIndex, endIndex - readIndex);
+                    index_buyValue = s.IndexOf("data-buyvalue", index_buyCurrency);
+                    readIndex = index_buyValue + "data-buyvalue".Length + 2;
+                    endIndex = s.IndexOf("\"", readIndex);
+                    string buyValue = s.Substring(readIndex, endIndex - readIndex);
 
-                index_displayOffer = s.IndexOf("displayoffer \"", endIndex + 1);
+                    index_ign = s.IndexOf("data-ign", index_buyValue);
+                    readIndex = index_ign + "data-ign".Length + 2;
+                    endIndex = s.IndexOf("\"", readIndex);
+                    string IGN = s.Substring(readIndex, endIndex - readIndex);
+                    result.CharacterName = IGN;
+
+                    index_stock = s.IndexOf("data-stock", index_ign);
+                    readIndex = index_stock + "data-stock".Length + 2;
+                    endIndex = s.IndexOf("\"", readIndex);
+                    string stock = s.Substring(readIndex, endIndex - readIndex);
+
+                    readIndex = index_stock + 12;
+
+                    result.League = server;
+                    result.buyCurrency = Convert.ToInt32(GetItemMapping(itemNameWant));  
+                    result.buyValue = Convert.ToDecimal(buyValue);                     
+                    result.stock = Convert.ToInt32(stock);
+                    result.sellCurrency = Convert.ToInt32(GetItemMapping(itemNameHave));
+                    result.sellValue = Convert.ToDecimal(sellValue);
+
+                    decimal desiredQuantity = 1;
+                    decimal costPerUnit = result.buyValue / result.sellValue;
+                    decimal totalCost = desiredQuantity * costPerUnit;
+
+                    string whisper = CreateWhisper(IGN, server, itemNameWant, desiredQuantity, itemNameHave, totalCost );
+                   
+                    string WriteFileStr = "[" + server + "] " + stock + "x " + itemNameWant + " for " + sellValue + " " + itemNameHave + ", from IGN " + IGN + "(" + username + "), Cost per unit: " + costPerUnit;
+
+                    await WriteFile("currency_out.txt", WriteFileStr);
+                    await WriteFile("whispers.txt", whisper);
+
+                    Console.WriteLine("Listing: SellCurrency {0}, SellValue {1}, BuyValue {2}, BuyCurrency {3}, IGN: {4}, Stock: {5}, CPU: {6}", ItemName, sellValue, buyValue, buyCurrency, IGN, stock, costPerUnit);
+                }        
             }
         }
 
-        public static string CreateWhisper(string Buyout, int BuyUnitQuantity, string CharacterName, string League, string ItemName, int ItemQuantity, string StashTabName, int CellX, int CellY)
+        public static string CreateWhisper(string CharacterName, string League, string ItemName, decimal ItemQuantity, string Buyout, decimal BuyUnitQuantity)
         {
             string Whisper = "@" + CharacterName + " ";
             Whisper += "Hi, I would like to buy your " + ItemQuantity + " " + ItemName + " ";
-            Whisper += "listed for " + BuyUnitQuantity + " " +  Buyout + " ";
-            Whisper += "in " + League + " ";
-            Whisper += "(stash tab \"" + StashTabName + "\"; ";
-            Whisper += "position: left " + CellX + ", top " + CellY + ")";
+            Whisper += "for my " + BuyUnitQuantity + " " +  Buyout + " ";
+            Whisper += "in " + League + ".";
 
             return Whisper;
         }
 
         public void ReadFileAndGetListings(string fileName)
         {
-            string itemName = string.Empty;
+            string itemNameHave = string.Empty;
+            string itemNameWant = string.Empty;
             string server = string.Empty;
-            string parameters = string.Empty;
 
             string[] lines = System.IO.File.ReadAllLines(@fileName);
             int counter = 0;
@@ -232,23 +261,26 @@ namespace CurrencyListingGrabber
                 if (counter == 0)
                 {
                     server = line;
-                    parameters = "league=" + server + "&";
                 }
                 else if (counter == 1)
                 {
-                    itemName = line;
-                    parameters += "name=" + itemName + "&";
+                    itemNameHave = line;
                 }
-                else
+                else if (counter == 2)
                 {
-                    parameters += line + "&";
+                    itemNameWant = line;
                 }
 
                 counter += 1;
             }
 
+            if (lines.Length == 0)
+            {
+                Console.WriteLine("Could not read file! Please check your input file/format and try again.");
+                return;
+            }
 
-            GetListings(server, itemName, 1, parameters);
+            GetListings(server, itemNameWant, 1, itemNameHave);
         }
 
     }
@@ -265,10 +297,9 @@ namespace CurrencyListingGrabber
             }
             else
             {
-                //Console.WriteLine("Usage (command line): ./ListingGrabber <server> <itemName>");
-                //Console.WriteLine("Usage (input file): ./ListingGrabber <fileName>");
+                Console.WriteLine("Usage (input file): ./ListingGrabber <fileName>");
           
-                g.GetListings("Scourge", "Chaos Orb", 1, "Orb of Alchemy");
+                g.GetListings("Scourge", "Chaos Orb", 1, "Orb of Alchemy"); //test example
             }
 
         }
